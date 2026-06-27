@@ -1,20 +1,23 @@
 'use strict';
 
-const { prefix } = require('../config');
+const { prefix, defaultKeyword, cooldownMs } = require('../config');
+const { assetPath } = require('../util/assets');
+const { Cooldowns } = require('../util/cooldown');
 
 // ดึงคีย์เวิร์ดจากข้อความ / extract keyword from an incoming message
-// คืน { keyword } เมื่อเจอ, { help: true } เมื่อ mention เปล่า, หรือ null
+// คืน { keyword } เมื่อเจอ หรือ null
 function parseTrigger(message, botId) {
   const content = (message.content || '').trim();
 
-  // วิธีที่ 1: mention บอท เช่น "@Kei peak" / mention syntax
+  // วิธีที่ 1: mention บอท / mention syntax
   const mentioned = message.mentions.users.has(botId);
   if (mentioned) {
     const stripped = content
       .replace(new RegExp(`<@!?${botId}>`, 'g'), ' ')
       .trim();
     const keyword = stripped.split(/\s+/)[0];
-    if (!keyword) return { help: true }; // mention เปล่า = แสดงคำใบ้
+    // mention เปล่า = ยิงคีย์เวิร์ดเริ่มต้น (ส่งรูป) / bare mention -> default keyword
+    if (!keyword) return { keyword: defaultKeyword };
     return { keyword };
   }
 
@@ -30,41 +33,50 @@ function parseTrigger(message, botId) {
   return null;
 }
 
-// ส่งทุกค่าที่ผูกไว้กลับไป / fire all bound values back to the channel
-async function fireTrigger(message, trigger) {
-  const body = trigger.values.map((v) => v.content).join('\n').slice(0, 2000);
-  await message.reply({ content: body, allowedMentions: { repliedUser: false } });
+// สุ่มเลือกค่าหนึ่งค่าจาก trigger / pick a single random value
+function pickValue(trigger) {
+  const vals = trigger.values;
+  if (!vals || vals.length === 0) return null;
+  return vals[Math.floor(Math.random() * vals.length)];
+}
+
+// สร้าง payload สำหรับตอบกลับค่าหนึ่งค่า / build the reply payload for one value
+function buildReplyPayload(value) {
+  const base = { allowedMentions: { repliedUser: false } };
+  if (value.file) {
+    // รูปที่อัปโหลดไว้ → ส่งเป็นไฟล์แนบจริง / uploaded image -> send as a real attachment
+    return { ...base, files: [{ attachment: assetPath(value.file), name: value.content || 'image' }] };
+  }
+  // ข้อความ/ลิงก์/URL รูป → ส่งเป็นข้อความ (Discord จะ embed ให้เอง)
+  return { ...base, content: String(value.content).slice(0, 2000) };
 }
 
 function createMessageHandler(client, store) {
+  const cooldowns = new Cooldowns(cooldownMs);
+
   return async function onMessage(message) {
     if (message.author.bot || !message.guild) return; // ข้ามบอทและ DM
 
     const parsed = parseTrigger(message, client.user.id);
     if (!parsed) return;
 
-    if (parsed.help) {
-      await message.reply({
-        content:
-          `เรียก trigger ได้สองวิธี:\n` +
-          `• \`${prefix}คีย์เวิร์ด\` เช่น \`${prefix}peak\`\n` +
-          `• \`@${client.user.username} คีย์เวิร์ด\`\n` +
-          `ดูคีย์เวิร์ดทั้งหมดด้วย \`/triggers\``,
-        allowedMentions: { repliedUser: false },
-      });
-      return;
-    }
-
     const trigger = store.get(parsed.keyword);
-    if (!trigger || trigger.values.length === 0) return; // ไม่พบ = เงียบไว้
+    if (!trigger || trigger.values.length === 0) return; // ไม่พบ = เงียบไว้ (ไม่บอกวิธีใช้)
+
+    // คูลดาวน์กันสแปม (ต่อผู้ใช้ต่อกิลด์) — ติดคูลดาวน์ก็เงียบไว้
+    const remain = cooldowns.hit(`${message.guildId}:${message.author.id}`);
+    if (remain > 0) return;
+
+    const value = pickValue(trigger);
+    if (!value) return;
 
     store.recordFire(trigger.keyword);
     try {
-      await fireTrigger(message, trigger);
+      await message.reply(buildReplyPayload(value));
     } catch (err) {
       console.error('[message] failed to fire trigger:', err.message);
     }
   };
 }
 
-module.exports = { createMessageHandler, parseTrigger };
+module.exports = { createMessageHandler, parseTrigger, pickValue, buildReplyPayload };

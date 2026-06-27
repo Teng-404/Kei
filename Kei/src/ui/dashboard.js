@@ -30,7 +30,14 @@ function previewValues(trigger) {
     .map((v, i) => {
       const raw = v.content.replace(/\n+/g, ' ');
       const text = raw.length > 80 ? `${raw.slice(0, 77)}…` : raw;
-      const label = v.type === 'text' ? text : `[${v.type}](${v.content}) — \`${text}\``;
+      let label;
+      if (v.file) {
+        label = `\`${text}\` 📎 *(ไฟล์แนบ)*`; // รูปที่อัปโหลดไว้ ไม่มี URL ให้ลิงก์
+      } else if (v.type === 'text') {
+        label = text;
+      } else {
+        label = `[${v.type}](${v.content}) — \`${text}\``;
+      }
       return `\`${i + 1}.\` ${typeIcon(v.type)} ${label}`;
     })
     .join('\n');

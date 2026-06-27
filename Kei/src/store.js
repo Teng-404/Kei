@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { detectType } = require('./util/types');
+const { removeAsset } = require('./util/assets');
 const { dataFile } = require('./config');
 
 /**
@@ -10,12 +11,13 @@ const { dataFile } = require('./config');
  *
  * โครงสร้างของแต่ละ trigger / shape of each trigger:
  * {
- *   keyword: string,                                  // คีย์เวิร์ด (ตัวพิมพ์เล็ก)
- *   values: { type: 'image'|'link'|'text', content }[], // ค่าที่ผูกไว้ (มีได้หลายค่า)
- *   createdAt: number,                                // วันที่สร้าง (epoch ms)
- *   updatedAt: number,                                // วันที่แก้ไขล่าสุด
- *   fired: number,                                    // จำนวนครั้งที่ถูกเรียกใช้
- *   createdBy: string|null                            // ผู้สร้าง (user id)
+ *   keyword: string,
+ *   values: { type: 'image'|'link'|'text', content: string, file?: string }[],
+ *   //  file = ชื่อไฟล์ใน assetsDir เมื่อค่านั้นเป็นรูปที่อัปโหลดแนบ
+ *   createdAt: number,
+ *   updatedAt: number,
+ *   fired: number,
+ *   createdBy: string|null
  * }
  */
 class TriggerStore {
@@ -66,9 +68,12 @@ class TriggerStore {
 
   /**
    * เพิ่มค่าให้คีย์เวิร์ด (สร้างใหม่ถ้ายังไม่มี) / add a value to a keyword.
-   * คืน trigger ที่อัปเดตแล้ว
+   * @param {string} keyword
+   * @param {string} content
+   * @param {{ type?: string, userId?: string, file?: string }} opts
+   *   file = ชื่อไฟล์ asset ที่อัปโหลดไว้แล้ว (ถ้ามี)
    */
-  add(keyword, content, { type, userId } = {}) {
+  add(keyword, content, { type, userId, file } = {}) {
     const key = TriggerStore.norm(keyword);
     if (!key) throw new Error('keyword ว่างไม่ได้ / keyword cannot be empty');
     if (!content || !String(content).trim()) {
@@ -76,6 +81,7 @@ class TriggerStore {
     }
 
     const value = { type: type || detectType(content), content: String(content).trim() };
+    if (file) value.file = file; // ค่าที่เป็นไฟล์แนบ
     const now = Date.now();
     let trigger = this.map.get(key);
 
@@ -90,12 +96,15 @@ class TriggerStore {
     return trigger;
   }
 
-  // ลบทั้งคีย์เวิร์ด / remove an entire keyword
+  // ลบทั้งคีย์เวิร์ด (พร้อมล้างไฟล์ asset) / remove a keyword and clean up its assets
   remove(keyword) {
     const key = TriggerStore.norm(keyword);
-    const existed = this.map.delete(key);
-    if (existed) this._save();
-    return existed;
+    const trigger = this.map.get(key);
+    if (!trigger) return false;
+    for (const v of trigger.values) removeAsset(v.file);
+    this.map.delete(key);
+    this._save();
+    return true;
   }
 
   // ลบเฉพาะค่าที่ระบุ (index เริ่มที่ 1) / remove one value by 1-based index
@@ -104,7 +113,8 @@ class TriggerStore {
     if (!t) return false;
     const i = index1 - 1;
     if (i < 0 || i >= t.values.length) return false;
-    t.values.splice(i, 1);
+    const [removed] = t.values.splice(i, 1);
+    removeAsset(removed.file); // ล้างไฟล์ที่ผูกกับค่านั้น
     if (t.values.length === 0) {
       this.map.delete(t.keyword);
     } else {

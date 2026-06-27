@@ -2,6 +2,8 @@
 
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const { typeIcon } = require('../util/types');
+const { saveAttachment } = require('../util/assets');
+const { maxUploadBytes } = require('../config');
 
 // คำสั่ง /trigger — จัดการ trigger (เพิ่ม/ลบ/ดูข้อมูล)
 module.exports = {
@@ -14,11 +16,12 @@ module.exports = {
         .setName('add')
         .setDescription('เพิ่มค่าให้คีย์เวิร์ด / bind a value to a keyword')
         .addStringOption((o) => o.setName('keyword').setDescription('คีย์เวิร์ด เช่น peak').setRequired(true))
-        .addStringOption((o) => o.setName('value').setDescription('รูปภาพ(URL) / ข้อความ / ลิงก์').setRequired(true))
+        .addStringOption((o) => o.setName('value').setDescription('ข้อความ / ลิงก์ / URL รูป (เว้นได้ถ้าแนบไฟล์)'))
+        .addAttachmentOption((o) => o.setName('file').setDescription('อัปโหลดรูปแนบโดยตรง / upload an image file'))
         .addStringOption((o) =>
           o
             .setName('type')
-            .setDescription('บังคับชนิด (ปล่อยว่างให้ตรวจอัตโนมัติ)')
+            .setDescription('บังคับชนิดของ value (ปล่อยว่างให้ตรวจอัตโนมัติ)')
             .addChoices(
               { name: 'image', value: 'image' },
               { name: 'link', value: 'link' },
@@ -46,17 +49,43 @@ module.exports = {
     if (sub === 'add') {
       const keyword = interaction.options.getString('keyword');
       const value = interaction.options.getString('value');
+      const file = interaction.options.getAttachment('file');
       const type = interaction.options.getString('type') || undefined;
-      try {
-        const t = store.add(keyword, value, { type, userId: interaction.user.id });
-        const last = t.values[t.values.length - 1];
-        await interaction.reply({
-          content: `ผูกค่าให้ \`.${t.keyword}\` แล้ว (${typeIcon(last.type)} ${last.type}) — ตอนนี้มี ${t.values.length} ค่า`,
-          flags: MessageFlags.Ephemeral,
-        });
-      } catch (err) {
-        await interaction.reply({ content: `${err.message}`, flags: MessageFlags.Ephemeral });
+
+      if (!value && !file) {
+        await interaction.reply({ content: '❌ ต้องระบุ `value` หรือแนบ `file` อย่างน้อยหนึ่งอย่าง', flags: MessageFlags.Ephemeral });
+        return;
       }
+
+      // มีไฟล์ = อาจต้องดาวน์โหลด → defer ก่อน / downloading may take a moment
+      if (file) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const reply = (payload) => (file ? interaction.editReply(payload) : interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }));
+
+      const lines = [];
+      try {
+        if (file) {
+          if (!String(file.contentType || '').startsWith('image/')) {
+            throw new Error('แนบได้เฉพาะไฟล์รูปภาพ / attachment must be an image');
+          }
+          if (file.size > maxUploadBytes) {
+            throw new Error(`ไฟล์ใหญ่เกินไป จำกัด ${Math.round(maxUploadBytes / 1024 / 1024)}MB`);
+          }
+          const stored = await saveAttachment(file, keyword);
+          const t = store.add(keyword, file.name || 'image', { type: 'image', userId: interaction.user.id, file: stored });
+          lines.push(`🖼️ image (ไฟล์แนบ \`${file.name || 'image'}\`) — รวม ${t.values.length} ค่า`);
+        }
+        if (value) {
+          const t = store.add(keyword, value, { type, userId: interaction.user.id });
+          const last = t.values[t.values.length - 1];
+          lines.push(`${typeIcon(last.type)} ${last.type} — รวม ${t.values.length} ค่า`);
+        }
+      } catch (err) {
+        await reply({ content: `❌ ${err.message}` });
+        return;
+      }
+
+      const key = store.constructor.norm(keyword);
+      await reply({ content: `✅ เพิ่มค่าให้ \`.${key}\` แล้ว:\n• ${lines.join('\n• ')}` });
       return;
     }
 
@@ -66,13 +95,13 @@ module.exports = {
       if (index == null) {
         const ok = store.remove(keyword);
         await interaction.reply({
-          content: ok ? `ลบ \`.${store.constructor.norm(keyword)}\` ทั้งหมดแล้ว` : '❌ ไม่พบคีย์เวิร์ดนี้',
+          content: ok ? `🗑️ ลบ \`.${store.constructor.norm(keyword)}\` ทั้งหมดแล้ว` : '❌ ไม่พบคีย์เวิร์ดนี้',
           flags: MessageFlags.Ephemeral,
         });
       } else {
         const ok = store.removeValue(keyword, index);
         await interaction.reply({
-          content: ok ? `ลบค่าลำดับ ${index} ของ \`.${store.constructor.norm(keyword)}\` แล้ว` : '❌ ไม่พบคีย์เวิร์ดหรือลำดับนั้น',
+          content: ok ? `🗑️ ลบค่าลำดับ ${index} ของ \`.${store.constructor.norm(keyword)}\` แล้ว` : '❌ ไม่พบคีย์เวิร์ดหรือลำดับนั้น',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -82,14 +111,17 @@ module.exports = {
     if (sub === 'info') {
       const t = store.get(interaction.options.getString('keyword'));
       if (!t) {
-        await interaction.reply({ content: 'ไม่พบคีย์เวิร์ดนี้', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: '❌ ไม่พบคีย์เวิร์ดนี้', flags: MessageFlags.Ephemeral });
         return;
       }
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle(`.${t.keyword}`)
         .setDescription(
-          t.values.map((v, i) => `\`${i + 1}.\` ${typeIcon(v.type)} **${v.type}** — ${v.content}`).join('\n').slice(0, 4000),
+          t.values
+            .map((v, i) => `\`${i + 1}.\` ${typeIcon(v.type)} **${v.type}** — ${v.content}${v.file ? ' *(ไฟล์แนบ)*' : ''}`)
+            .join('\n')
+            .slice(0, 4000),
         )
         .addFields(
           { name: 'Fired', value: `${t.fired || 0}×`, inline: true },
