@@ -56,6 +56,21 @@ The `/triggers` command is a dashboard for browsing every keyword — it **loads
 
 ---
 
+## การจัดการ trigger / Managing triggers
+
+ใช้ slash command `/trigger` (ต้องมีสิทธิ์ **Manage Server**):
+
+| คำสั่ง / Command | คำอธิบาย / Description |
+|------------------|------------------------|
+| `/trigger add keyword value [type]` | ผูกรูป/ข้อความ/ลิงก์เข้ากับคีย์เวิร์ด (ชนิดตรวจอัตโนมัติ) |
+| `/trigger remove keyword [index]` | ลบทั้งคีย์เวิร์ด หรือเฉพาะค่าลำดับที่ระบุ |
+| `/trigger info keyword` | ดูรายละเอียด: ทุกค่า, จำนวนครั้งที่ถูกเรียก, วันที่ |
+
+> คีย์เวิร์ดเดียวเพิ่มได้หลายค่า — `add` ซ้ำคีย์เดิมจะ "เพิ่ม" ค่าใหม่เข้าไป
+> Add `value` multiple times to the same keyword to bind several assets.
+
+---
+
 ## เริ่มต้นใช้งาน / Getting Started
 
 ```bash
@@ -67,10 +82,58 @@ cd kei
 npm install
 
 # ตั้งค่า token ในไฟล์ .env
-# BOT_TOKEN=your_discord_bot_token
+cp .env.example .env
+# แล้วแก้ค่า BOT_TOKEN=your_discord_bot_token
 
 # รันบอท
 npm start
+```
+
+### ⚠️ สิ่งที่ต้องตั้งใน Developer Portal
+
+ระบบ `.keyword` ต้องอ่านเนื้อหาข้อความ จึงต้องเปิด **Message Content Intent** (privileged):
+
+> Discord Developer Portal → เลือกแอป → **Bot** → เปิด **Message Content Intent**
+
+และเชิญบอทด้วยสโคป `bot` + `applications.commands`
+
+### ค่าตั้งเสริม / Optional env
+
+| ตัวแปร | ค่าเริ่มต้น | คำอธิบาย |
+|--------|-----------|----------|
+| `BOT_TOKEN` | — | โทเคนบอท (จำเป็น) |
+| `GUILD_ID` | — | ลงทะเบียนคำสั่งเฉพาะกิลด์ → ขึ้นทันที (ระหว่างพัฒนา) |
+| `PREFIX` | `.` | ตัวนำหน้าคีย์เวิร์ด |
+| `PER_PAGE` | `8` | จำนวน trigger ต่อหน้าใน `/triggers` |
+
+ข้อมูล trigger ถูกเก็บเป็นไฟล์ JSON ที่ `data/triggers.json` (มีไฟล์ตัวอย่าง `data/triggers.example.json`)
+
+### ทดสอบ / Test
+
+```bash
+npm test   # ทดสอบ logic หลัก (store, sorting, pagination, parser)
+```
+
+---
+
+## โครงสร้างโปรเจกต์ / Project structure
+
+```
+kei/
+├── src/
+│   ├── index.js                 # จุดเริ่มต้น เชื่อมทุกส่วนเข้าด้วยกัน
+│   ├── config.js                # อ่านค่าจาก .env
+│   ├── store.js                 # คลังเก็บ trigger (ไฟล์ JSON)
+│   ├── util/types.js            # ตรวจชนิดค่า image/link/text
+│   ├── commands/
+│   │   ├── triggers.js          # /triggers (แดชบอร์ด)
+│   │   └── trigger.js           # /trigger add|remove|info
+│   ├── handlers/
+│   │   ├── messageHandler.js    # ทริกเกอร์ . และ @mention
+│   │   └── interactionHandler.js# ปุ่ม/เมนู/modal ของแดชบอร์ด
+│   └── ui/dashboard.js          # สร้าง embed + ปุ่ม pagination/sort
+├── data/                        # ที่เก็บข้อมูล
+└── test/logic.test.js           # ชุดทดสอบ
 ```
 
 ---

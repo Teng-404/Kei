@@ -1,0 +1,24 @@
+[
+  {
+    "keyword": "peak",
+    "values": [
+      { "type": "image", "content": "https://example.com/peak1.png" },
+      { "type": "image", "content": "https://example.com/peak2.gif" },
+      { "type": "text",  "content": "PEAK" }
+    ],
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000500000,
+    "fired": 42,
+    "createdBy": null
+  },
+  {
+    "keyword": "docs",
+    "values": [
+      { "type": "link", "content": "https://discord.js.org/docs" }
+    ],
+    "createdAt": 1700000100000,
+    "updatedAt": 1700000100000,
+    "fired": 7,
+    "createdBy": null
+  }
+]
