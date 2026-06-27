@@ -17,12 +17,13 @@ Kei works on a **trigger** system — define a keyword ahead of time, and the bo
 
 | รูปแบบ / Syntax | คำอธิบาย / Description |
 |-----------------|------------------------|
-| `@` | mention บอทเพื่อเรียกใช้งาน / mention the bot |
+| `@` | mention เพื่อทริคเกอร์คำสั่ง / mention the bot |
 | `.[ข้อความ]` | พิมพ์จุดตามด้วยคีย์เวิร์ด / type a dot followed by the keyword |
 
 **ตัวอย่าง / Example**
 
 ```
+@Kei
 .peak
 ```
 
